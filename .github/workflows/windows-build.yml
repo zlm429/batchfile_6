@@ -83,6 +83,8 @@ jobs:
           Write-Host "Config:   launch4j-config.xml"
           Write-Host "JAR:       target\batchfile_app-0.0.1-SNAPSHOT.jar"
           Write-Host "Out EXE:   target\dist\BatchRenameTool.exe"
+          Write-Host "Config file exists: $(Test-Path launch4j-config.xml)"
+          Write-Host "JAR exists: $(Test-Path target\batchfile_app-0.0.1-SNAPSHOT.jar)"
 
           if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw "launch4j.exe missing" }
           if (-not (Test-Path "launch4j-config.xml")) { throw "config.xml missing" }
@@ -90,13 +92,23 @@ jobs:
 
           New-Item -Path "target\dist" -ItemType Directory -Force | Out-Null
 
-          & "C:\launch4j\launch4j.exe" launch4j-config.xml 2>&1
+          Write-Host "=== Running Launch4j ==="
+          $output = & "C:\launch4j\launch4j.exe" launch4j-config.xml 2>&1
           $e = $LASTEXITCODE
+          Write-Host "Launch4j output: $output"
           Write-Host "Launch4j exit code = $e"
 
-          if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
-            throw "EXE not generated, exit code $e"
+          if ($e -ne 0) {
+            Write-Host "Launch4j failed with exit code: $e"
+            throw "Launch4j 打包失败，退出码: $e"
           }
+
+          if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
+            throw "EXE 文件未生成，请检查 Launch4j 日志"
+          }
+          
+          Write-Host "EXE 生成成功！"
+          Get-Item "target\dist\BatchRenameTool.exe" | Select-Object Name, Length
         shell: powershell
 
       - name: Bundle JRE with EXE
