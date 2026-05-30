@@ -1,205 +1,85 @@
-name: Windows Build and Package
+name: Build Windows EXE
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  JAVA_HOME: C:\Program Files\Eclipse Adoptium\jdk-17.0.13+11
-  MAVEN_OPTS: -Xmx2048m
-
 jobs:
-  build-windows:
-    runs-on: windows-latest
-
+  build:
+    runs-on: windows-2022
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17 (Temurin)
-      uses: actions/setup-java@v5
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        architecture: x64
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
 
-    - name: Verify Java
-      run: |
-        java -version
-        javac -version
-      shell: powershell
+      - name: Build with Maven
+        run: mvn -B clean package
+        shell: powershell
 
-    - name: Cache Maven packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-        restore-keys: |
-          ${{ runner.os }}-maven-
+      - name: Download Launch4j
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/launch4j/launch4j/releases/download/v3.50/launch4j-3.50-win64.zip" -OutFile "launch4j.zip"
+          Expand-Archive -Path "launch4j.zip" -DestinationPath "C:\" -Force
+        shell: powershell
 
-    - name: Build with Maven
-      run: |
-        .\mvnw.cmd clean package -DskipTests
-      shell: powershell
+      - name: Download JRE 17 (Temurin)
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-jre_x64_windows_hotspot_17.0.11_9.zip" -OutFile "jre17.zip"
+          Expand-Archive -Path "jre17.zip" -DestinationPath "target\jre" -Force
+        shell: powershell
 
-    - name: Verify JAR exists
-      run: |
-        $jarPath = "target\batchfile_app-0.0.1-SNAPSHOT.jar"
-        if (-not (Test-Path $jarPath)) {
-          throw "ERROR: Maven build failed, JAR not found at $jarPath"
-        }
-        Write-Host "SUCCESS: JAR found at $jarPath"
-      shell: powershell
+      - name: Package EXE with Launch4j
+        run: |
+          Write-Host "=== Debug Paths ==="
+          Write-Host "Launch4j: C:\launch4j\launch4j.exe"
+          Write-Host "Config:   launch4j-config.xml"
+          Write-Host "JAR:       target\batchfile_app-0.0.1-SNAPSHOT.jar"
+          Write-Host "Out EXE:   target\dist\BatchRenameTool.exe"
 
-    - name: Download JavaFX SDK 17.0.2 Windows
-      run: |
-        Invoke-WebRequest -Uri "https://download2.gluonhq.com/openjfx/17.0.2/openjfx-17.0.2_windows-x64_bin-sdk.zip" -OutFile "javafx.zip"
-        Expand-Archive -Path "javafx.zip" -DestinationPath "C:\javafx" -Force
-        Move-Item -Path "C:\javafx\javafx-sdk-17.0.2" -Destination "C:\javafx-sdk" -Force
-        echo "JAVAFX_PATH=C:\javafx-sdk\lib" >> $env:GITHUB_ENV
-        Write-Host "SUCCESS: JavaFX installed"
-      shell: powershell
+          # 检查关键文件
+          if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw "launch4j.exe missing" }
+          if (-not (Test-Path "launch4j-config.xml")) { throw "config.xml missing" }
+          if (-not (Test-Path "target\batchfile_app-0.0.1-SNAPSHOT.jar")) { throw "JAR missing" }
 
-    - name: Install Launch4j via Chocolatey
-      run: |
-        choco install launch4j -y --no-progress
-      shell: powershell
+          New-Item -Path "target\dist" -ItemType Directory -Force | Out-Null
 
-    - name: Locate and copy Launch4j
-      run: |
-        New-Item -Path "C:\launch4j" -ItemType Directory -Force
+          # 执行打包并输出日志
+          & "C:\launch4j\launch4j.exe" launch4j-config.xml 2>&1
+          $e = $LASTEXITCODE
+          Write-Host "Launch4j exit code = $e"
 
-        $searchPaths = @(
-          "C:\Program Files\Launch4j",
-          "C:\Program Files (x86)\Launch4j",
-          "C:\ProgramData\chocolatey\lib\launch4j"
-        )
-
-        $found = $null
-        foreach ($p in $searchPaths) {
-          $exe = Get-ChildItem -Path $p -Recurse -Filter "launch4j.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($exe) {
-            $found = $exe.Directory.FullName
-            break
+          if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
+            throw "EXE not generated, exit code $e"
           }
-        }
+        shell: powershell
 
-        if (-not $found) {
-          throw "ERROR: launch4j.exe not found"
-        }
+      - name: Bundle JRE with EXE
+        run: |
+          Copy-Item -Recurse "target\jre\jdk-17.0.11+9" "target\dist\jre" -Force
+        shell: powershell
 
-        Write-Host "SUCCESS: Found Launch4j at $found"
-        Copy-Item -Path "$found\*" -Destination "C:\launch4j\" -Recurse -Force
+      - name: Zip release
+        run: |
+          Compress-Archive -Path "target\dist\*" -DestinationPath "BatchRenameTool-Win64.zip"
+        shell: powershell
 
-        if (-not (Test-Path "C:\launch4j\launch4j.exe")) {
-          throw "ERROR: Failed to copy launch4j.exe to C:\launch4j"
-        }
-      shell: powershell
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BatchRenameTool-Win64
+          path: BatchRenameTool-Win64.zip
 
-    - name: Download JRE 17 (Temurin)
-      run: |
-        $jreUrl = "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.13%2B11/OpenJDK17U-jre_x64_windows_hotspot_17.0.13_11.zip"
-        Invoke-WebRequest -Uri $jreUrl -OutFile "jre.zip"
-        Expand-Archive -Path "jre.zip" -DestinationPath "target\jre" -Force
-        $jreDir = Get-ChildItem "target\jre" -Directory | Select-Object -First 1
-        Rename-Item -Path $jreDir.FullName -NewName "jdk-17"
-        echo "JRE_PATH=target\jre\jdk-17" >> $env:GITHUB_ENV
-        Write-Host "SUCCESS: JRE installed at $env:JRE_PATH"
-      shell: powershell
-
-    - name: Create Launch4j config.xml
-      run: |
-        $xml = @'
-        <?xml version="1.0" encoding="UTF-8"?>
-        <launch4jConfig>
-          <dontWrapJar>false</dontWrapJar>
-          <headerType>gui</headerType>
-          <jar>target\batchfile_app-0.0.1-SNAPSHOT.jar</jar>
-          <outfile>target\dist\BatchRenameTool.exe</outfile>
-          <errTitle>BatchRenameTool</errTitle>
-          <chdir>.</chdir>
-          <priority>normal</priority>
-          <downloadUrl>https://www.java.com/download/</downloadUrl>
-          <supportUrl>https://github.com/zlm429/batchfile_new</supportUrl>
-          <customProcName>false</customProcName>
-          <stayAlive>false</stayAlive>
-          <icon></icon>
-          <jre>
-            <path>jre</path>
-            <bundledJre64Bit>true</bundledJre64Bit>
-            <bundledJreAsFallback>false</bundledJreAsFallback>
-            <minVersion>17</minVersion>
-            <jdkPreference>preferJre</jdkPreference>
-            <runtimeBits>64</runtimeBits>
-          </jre>
-        </launch4jConfig>
-        '@
-        $xml | Out-File -FilePath "launch4j-config.xml" -Encoding UTF8
-        New-Item -Path "target\dist" -ItemType Directory -Force
-      shell: powershell
-
-    - name: Package EXE with Launch4j
-      run: |
-        & "C:\launch4j\launch4j.exe" launch4j-config.xml
-        if ($LASTEXITCODE -ne 0) {
-          throw "ERROR: Launch4j failed with exit code $LASTEXITCODE"
-        }
-        if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
-          throw "ERROR: Launch4j did not generate EXE file"
-        }
-        Write-Host "SUCCESS: EXE generated at target\dist\BatchRenameTool.exe"
-      shell: powershell
-
-    - name: Create Distribution Package
-      run: |
-        $dist = "target\dist"
-        $app = "$dist\BatchRenameTool-Windows"
-        New-Item -Path $app -ItemType Directory -Force
-
-        # Copy JRE
-        Copy-Item -Path "$env:JRE_PATH" -Destination "$app\jre" -Recurse -Force
-
-        # Copy JavaFX
-        Copy-Item -Path "C:\javafx-sdk\lib\*" -Destination "$app\lib" -Recurse -Force
-
-        # Copy JAR and EXE
-        Copy-Item -Path "target\batchfile_app-0.0.1-SNAPSHOT.jar" -Destination $app
-        Copy-Item -Path "$dist\BatchRenameTool.exe" -Destination $app
-
-        # Create start.bat
-        "@echo off`ncd /d `"%~dp0`nstart jre\bin\javaw.exe -jar batchfile_app-0.0.1-SNAPSHOT.jar" | Out-File "$app\start.bat" -Encoding ASCII
-
-        # Create README
-        "Batch Rename Tool for Windows`nBuilt-in JRE + JavaFX, no Java installation required" | Out-File "$app\README.txt" -Encoding UTF8
-
-        # Compress to ZIP
-        Compress-Archive -Path "$app\*" -DestinationPath "$dist\BatchRenameTool-Windows.zip" -Force
-
-        Write-Host "SUCCESS: Package created at $dist\BatchRenameTool-Windows.zip"
-      shell: powershell
-
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: BatchRenameTool-Windows
-        path: target/dist/*.zip
-        retention-days: 30
-
-    - name: Create Release
-      if: github.event_name == 'push' && success()
-      uses: softprops/action-gh-release@v2
-      with:
-        files: target/dist/*.zip
-        tag_name: v${{ github.run_number }}
-        name: Release v${{ github.run_number }}
-        body: |
-          ### Batch Rename Tool (Windows)
-          - Built-in JRE 17 + JavaFX 17
-          - No Java installation required
-          - Portable, just unzip and run
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: BatchRenameTool-Win64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
