@@ -23,10 +23,12 @@ jobs:
         run: mvn -B clean package
         shell: powershell
 
-      - name: Download Launch4j
+      - name: Install Launch4j via Chocolatey
         run: |
-          Invoke-WebRequest -Uri "https://github.com/launch4j/launch4j/releases/download/v3.50/launch4j-3.50-win64.zip" -OutFile "launch4j.zip"
-          Expand-Archive -Path "launch4j.zip" -DestinationPath "C:\" -Force
+          choco install launch4j -y --no-progress
+          New-Item -Path "C:\launch4j" -ItemType Directory -Force
+          $exe = Get-ChildItem "C:\ProgramData\chocolatey\lib\launch4j" -Recurse -Filter "launch4j.exe" | Select-Object -First 1
+          Copy-Item $exe.Directory.FullName\* "C:\launch4j\" -Recurse -Force
         shell: powershell
 
       - name: Download JRE 17 (Temurin)
@@ -43,14 +45,12 @@ jobs:
           Write-Host "JAR:       target\batchfile_app-0.0.1-SNAPSHOT.jar"
           Write-Host "Out EXE:   target\dist\BatchRenameTool.exe"
 
-          # 检查关键文件
           if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw "launch4j.exe missing" }
           if (-not (Test-Path "launch4j-config.xml")) { throw "config.xml missing" }
           if (-not (Test-Path "target\batchfile_app-0.0.1-SNAPSHOT.jar")) { throw "JAR missing" }
 
           New-Item -Path "target\dist" -ItemType Directory -Force | Out-Null
 
-          # 执行打包并输出日志
           & "C:\launch4j\launch4j.exe" launch4j-config.xml 2>&1
           $e = $LASTEXITCODE
           Write-Host "Launch4j exit code = $e"
