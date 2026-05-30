@@ -64,8 +64,9 @@ jobs:
                  --vendor RT \
                  --mac-package-identifier com.rt.batchtool \
                  --module-path ${{ env.JAVAFX_PATH }} \
-                 --add-modules javafx.controls,javafx.fxml \
-                 --java-options "-Dfile.encoding=UTF-8"
+                 --add-modules javafx.controls,javafx.fxml,javafx.base,javafx.graphics \
+                 --java-options "-Dfile.encoding=UTF-8" \
+                 --java-options "-Dprism.allowhidpi=false"
     
     - name: Upload DMG
       if: always()
