@@ -58,8 +58,12 @@ jobs:
         run: |
           New-Item -Path "target\dist\BatchRenameTool-Windows" -ItemType Directory -Force
           
-          # 复制精简 JRE
+          # 复制精简 JRE（先创建目标目录）
+          New-Item -Path "target\dist\BatchRenameTool-Windows\jre" -ItemType Directory -Force
           Copy-Item -Recurse "target\custom-jre\*" "target\dist\BatchRenameTool-Windows\jre" -Force
+          
+          # 创建 lib 目录
+          New-Item -Path "target\dist\BatchRenameTool-Windows\lib" -ItemType Directory -Force
           
           # 复制 JAR
           Copy-Item "target\batchfile_app-0.0.1-SNAPSHOT.jar" "target\dist\BatchRenameTool-Windows\"
