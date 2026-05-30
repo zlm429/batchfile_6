@@ -30,6 +30,12 @@ jobs:
           Move-Item -Path "C:\javafx\javafx-sdk-17.0.2" -Destination "C:\javafx-sdk"
         shell: powershell
 
+      - name: Download JRE 17 (Temurin)
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-jre_x64_windows_hotspot_17.0.11_9.zip" -OutFile "jre17.zip"
+          Expand-Archive -Path "jre17.zip" -DestinationPath "target\jre" -Force
+        shell: powershell
+
       - name: Create Distribution Package
         run: |
           New-Item -Path "target\dist\BatchRenameTool-Windows" -ItemType Directory -Force
