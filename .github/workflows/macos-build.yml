@@ -16,15 +16,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v5
     
-    - name: Set up JDK 17
+    - name: Set up JDK 17 with jpackage
       uses: actions/setup-java@v5
       with:
         java-version: '17'
         distribution: 'temurin'
-    
+        # 明确指定包含 jpackage 的版本
+        java-package-type: jdk
+
     - name: Set Intel JavaFX SDK
       run: |
-        echo "JAVAFX_URL=https://download2.gluonhq.com/openjfx/17.0.2/openjfx-17.0.2_osx-x64_bin-sdk.zip" >> $GITHUB_ENV
+        echo "JAVAFX_URL=https://download2.gluonhq.com/openjfx/17.0.2/openjax-17.0.2_osx-x64_bin-sdk.zip" >> $GITHUB_ENV
         echo "PLATFORM_NAME=Intel" >> $GITHUB_ENV
     
     - name: Cache Maven
@@ -40,20 +42,28 @@ jobs:
         chmod +x mvnw
         ./mvnw clean package -DskipTests
     
-    - name: Download JavaFX
+    - name: Download and Setup JavaFX
       run: |
+        # 下载 JavaFX SDK
         curl -L ${{ env.JAVAFX_URL }} -o javafx.zip
+        # 解压到临时目录
         unzip -q javafx.zip -d /tmp/
+        # 重命名目录以便于引用
         mv /tmp/javafx-sdk-17.0.2 /tmp/javafx-sdk
+        # 将 JavaFX 库路径添加到环境变量
         echo "JAVAFX_PATH=/tmp/javafx-sdk/lib" >> $GITHUB_ENV
     
     - name: Package DMG (Intel)
       run: |
+        # 创建临时目录用于 jpackage
         export TMPDIR=/tmp/jpkg
         mkdir -p $TMPDIR
         
+        # 清理并创建分发目录
         rm -rf target/dist
         mkdir -p target/dist
+        
+        # 使用 jpackage 打包 DMG
         jpackage --input target \
                  --name "BatchRenameTool" \
                  --main-jar batchfile_app-0.0.1-SNAPSHOT.jar \
