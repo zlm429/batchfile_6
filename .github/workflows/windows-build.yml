@@ -1,162 +1,110 @@
-name: Build Windows EXE
+name: macOS Build and Package (Intel)
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # 强制使用 Node.js 24 运行 Action
+
 jobs:
-  build:
-    runs-on: windows-2022
+  build-macos-intel:
+    runs-on: macos-latest
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
 
+      - name: Download and Setup JavaFX SDK
+        run: |
+          # 定义下载链接 (Intel x64)
+          JAVAFX_URL="https://download2.gluonhq.com/openjfx/17.0.2/openjfx-17.0.2_osx-x64_bin-sdk.zip"
+          FILE_NAME="javafx-sdk.zip"
+
+          echo "正在下载 JavaFX SDK..."
+          curl -L -o $FILE_NAME "$JAVAFX_URL"
+
+          # 校验文件大小 (正常应该在 50MB 以上，如果只有几 KB 说明下载的是 HTML 错误页)
+          FILE_SIZE=$(stat -f%z "$FILE_NAME")
+          if [ "$FILE_SIZE" -lt 1000000 ]; then
+            echo "❌ 下载失败！文件大小异常：$FILE_SIZE 字节"
+            exit 1
+          fi
+
+          # 解压
+          unzip -q $FILE_NAME -d /tmp/
+
+          # 设置环境变量
+          echo "JAVAFX_PATH=/tmp/javafx-sdk-17.0.2/lib" >> $GITHUB_ENV
+          echo "✅ JavaFX SDK 已就绪，路径：/tmp/javafx-sdk-17.0.2/lib"
+
       - name: Build with Maven
-        run: mvn -B clean package -DskipTests
-        shell: powershell
-
-      - name: Download JavaFX SDK
         run: |
-          Invoke-WebRequest -Uri "https://download2.gluonhq.com/openjfx/17.0.2/openjfx-17.0.2_windows-x64_bin-sdk.zip" -OutFile "javafx.zip"
-          Expand-Archive -Path javafx.zip -DestinationPath C:\javafx
-          Move-Item -Path "C:\javafx\javafx-sdk-17.0.2" -Destination "C:\javafx-sdk"
-        shell: powershell
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests
 
-      - name: Download JRE 17 (Temurin)
+      - name: Package DMG (Intel)
         run: |
-          Invoke-WebRequest -Uri "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-jre_x64_windows_hotspot_17.0.11_9.zip" -OutFile "jre17.zip"
-          Expand-Archive -Path "jre17.zip" -DestinationPath "target\jre" -Force
-        shell: powershell
+          # 清理旧的打包文件
+          rm -rf target/dist
+          mkdir -p target/dist
 
-      - name: Create Custom JRE with jlink
-        run: |
-          Write-Host "Creating custom JRE with jlink..."
-          $jdkHome = $env:JAVA_HOME
-          $jlinkPath = Join-Path $jdkHome "bin\jlink.exe"
-          
-          # 创建精简 JRE（只包含必要的模块）
-          & $jlinkPath `
-            --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging `
-            --output "target\custom-jre" `
-            --compress=2 `
-            --no-header-files `
-            --no-man-pages
-          
-          Write-Host "Custom JRE created!"
-          Get-ChildItem "target\custom-jre" -Recurse | Measure-Object -Property Length -Sum | Select-Object Count, @{Name="Size(MB)";Expression={[math]::Round($_.Sum/1MB,2)}}
-        shell: powershell
+          echo "开始打包 DMG..."
+          jpackage \
+            --input target \
+            --name "BatchRenameTool" \
+            --main-jar batchfile_app-0.0.1-SNAPSHOT.jar \
+            --main-class com.rt.batchfile_app.BatchfileAppApplication \
+            --dest target/dist \
+            --type dmg \
+            --app-version 1.0.0 \
+            --vendor RT \
+            --mac-package-identifier com.rt.batchtool \
+            --module-path ${{ env.JAVAFX_PATH }} \
+            --add-modules javafx.controls,javafx.fxml,javafx.base,javafx.graphics \
+            --java-options "-Dfile.encoding=UTF-8" \
+            --java-options "-Dprism.allowhidpi=false" \
+            --java-options "-Dsun.java2d.metal=true" \
+            --verbose
 
-      - name: Create Distribution Package
-        run: |
-          New-Item -Path "target\dist\BatchRenameTool-Windows" -ItemType Directory -Force
-          
-          # 复制精简 JRE（先创建目标目录）
-          New-Item -Path "target\dist\BatchRenameTool-Windows\jre" -ItemType Directory -Force
-          Copy-Item -Recurse "target\custom-jre\*" "target\dist\BatchRenameTool-Windows\jre" -Force
-          
-          # 创建 lib 目录
-          New-Item -Path "target\dist\BatchRenameTool-Windows\lib" -ItemType Directory -Force
-          
-          # 复制 JAR
-          Copy-Item "target\batchfile_app-0.0.1-SNAPSHOT.jar" "target\dist\BatchRenameTool-Windows\"
-          
-          # 复制 JavaFX SDK（JAR + native DLL）
-          Copy-Item -Recurse "C:\javafx-sdk\lib\*.jar" "target\dist\BatchRenameTool-Windows\lib\" -Force
-          Copy-Item -Recurse "C:\javafx-sdk\bin\*.dll" "target\dist\BatchRenameTool-Windows\lib\" -Force
-          
-          # 创建 EXE 包装器（使用 PowerShell 生成简单的启动器）
-          $exeScript = @'
-          param()
-          $jarPath = Join-Path $PSScriptRoot "batchfile_app-0.0.1-SNAPSHOT.jar"
-          $javaPath = Join-Path $PSScriptRoot "jre\bin\javaw.exe"
-          Start-Process $javaPath -ArgumentList "-jar", "`"$jarPath`"" -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
-          '@
-          
-          # 使用 PowerShell 的 PS2EXE 或者创建 bat 包装器
-          @'
-          @echo off
-          cd /d "%~dp0"
-          start /min "" cmd /c "jre\bin\javaw.exe -jar batchfile_app-0.0.1-SNAPSHOT.jar"
-          exit
-          '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\BatchRenameTool.bat" -Encoding ASCII
-          
-          # 创建启动脚本（使用 java.exe 以便显示错误）
-          @'
-          @echo off
-          cd /d "%~dp0"
-          echo Starting BatchRenameTool...
-          echo.
-          set JAVAFX_PATH=%~dp0lib
-          jre\bin\java.exe ^
-            --module-path "%JAVAFX_PATH%" ^
-            --add-modules javafx.controls,javafx.fxml ^
-            -Djava.library.path="%JAVAFX_PATH%" ^
-            -jar batchfile_app-0.0.1-SNAPSHOT.jar
-          if errorlevel 1 (
-            echo.
-            echo Error occurred! Press any key to exit...
-            pause >nul
-          )
-          '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\start.bat" -Encoding ASCII
-          
-          # 创建 README
-          @'
-          Batch Rename Tool - Windows Version
-          
-          Usage:
-          1. Extract to any directory
-          2. Double-click BatchRenameTool.bat to run
-          
-          Note: This version includes JRE and JavaFX, no additional installation required!
-          '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\README.txt" -Encoding UTF8
-          
-          # 压缩
-          Compress-Archive -Path "target\dist\BatchRenameTool-Windows\*" -DestinationPath "target\dist\BatchRenameTool-Windows.zip" -Force
-          
-          Write-Host "Package created successfully!"
-          Get-Item "target\dist\BatchRenameTool-Windows.zip" | Select-Object Name, Length
-        shell: powershell
+          echo "✅ 打包完成！"
+          ls -lh target/dist/*.dmg
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload DMG Artifact
+        if: always()
+        uses: actions/upload-artifact@v4.4.3
         with:
-          name: BatchRenameTool-Windows
-          path: target/dist/BatchRenameTool-Windows.zip
+          name: BatchRenameTool-macOS-Intel
+          path: target/dist/*.dmg
           retention-days: 30
 
       - name: Create Release
         if: github.event_name == 'push' && success()
         uses: softprops/action-gh-release@v2
         with:
-          files: target/dist/BatchRenameTool-Windows.zip
+          files: target/dist/*.dmg
           tag_name: v${{ github.run_number }}
           name: Release v${{ github.run_number }}
           body: |
-            ## 批量文件夹重命名工具 - Windows 版本
-            
+            ## 批量文件夹重命名工具 - macOS Intel 版本
+
             ### 功能特性
             - ✅ 批量重命名文件夹（支持 Excel 导入）
             - ✅ 批量重命名文件夹内的文件
-            - ✅ 自动分类文件到对应文件夹
-            
-            ### 安装说明
-            
-            1. 下载 `BatchRenameTool-Windows.zip`
-            2. 解压到任意目录
-            3. 双击 `BatchRenameTool.exe` 运行
-            
+            - ✅ 自动分类文件到对应文件夹（新功能）
+
             ### 系统要求
-            - Windows 10 或更高版本
-            - **无需安装 Java 环境**（已内置 JRE 17 和 JavaFX）
-            - 约 200MB 磁盘空间
+            - macOS 10.14 或更高版本
+            - Intel 处理器 Mac
+            - 无需安装 Java 环境（已内置 JRE）
           draft: false
           prerelease: false
         env:
