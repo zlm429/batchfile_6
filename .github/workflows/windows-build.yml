@@ -29,6 +29,7 @@ jobs:
       run: |
         java -version
         javac -version
+      shell: powershell
 
     - name: Cache Maven packages
       uses: actions/cache@v4
@@ -47,9 +48,9 @@ jobs:
       run: |
         $jarPath = "target\batchfile_app-0.0.1-SNAPSHOT.jar"
         if (-not (Test-Path $jarPath)) {
-          throw "❌ Maven 构建失败，JAR 不存在：$jarPath"
+          throw "ERROR: Maven build failed, JAR not found at $jarPath"
         }
-        Write-Host "✅ JAR 存在：$jarPath"
+        Write-Host "SUCCESS: JAR found at $jarPath"
       shell: powershell
 
     - name: Download JavaFX SDK 17.0.2 Windows
@@ -58,7 +59,7 @@ jobs:
         Expand-Archive -Path "javafx.zip" -DestinationPath "C:\javafx" -Force
         Move-Item -Path "C:\javafx\javafx-sdk-17.0.2" -Destination "C:\javafx-sdk" -Force
         echo "JAVAFX_PATH=C:\javafx-sdk\lib" >> $env:GITHUB_ENV
-        Write-Host "✅ JavaFX 安装完成"
+        Write-Host "SUCCESS: JavaFX installed"
       shell: powershell
 
     - name: Install Launch4j via Chocolatey
@@ -66,7 +67,7 @@ jobs:
         choco install launch4j -y --no-progress
       shell: powershell
 
-    - name: Locate and copy Launch4j (fix path error)
+    - name: Locate and copy Launch4j
       run: |
         New-Item -Path "C:\launch4j" -ItemType Directory -Force
 
@@ -86,14 +87,14 @@ jobs:
         }
 
         if (-not $found) {
-          throw "❌ 找不到 launch4j.exe"
+          throw "ERROR: launch4j.exe not found"
         }
 
-        Write-Host "✅ 找到 Launch4j：$found"
+        Write-Host "SUCCESS: Found Launch4j at $found"
         Copy-Item -Path "$found\*" -Destination "C:\launch4j\" -Recurse -Force
 
         if (-not (Test-Path "C:\launch4j\launch4j.exe")) {
-          throw "❌ 复制失败，C:\launch4j\launch4j.exe 不存在"
+          throw "ERROR: Failed to copy launch4j.exe to C:\launch4j"
         }
       shell: powershell
 
@@ -105,7 +106,7 @@ jobs:
         $jreDir = Get-ChildItem "target\jre" -Directory | Select-Object -First 1
         Rename-Item -Path $jreDir.FullName -NewName "jdk-17"
         echo "JRE_PATH=target\jre\jdk-17" >> $env:GITHUB_ENV
-        Write-Host "✅ JRE 安装完成：$env:JRE_PATH"
+        Write-Host "SUCCESS: JRE installed at $env:JRE_PATH"
       shell: powershell
 
     - name: Create Launch4j config.xml
@@ -143,12 +144,12 @@ jobs:
       run: |
         & "C:\launch4j\launch4j.exe" launch4j-config.xml
         if ($LASTEXITCODE -ne 0) {
-          throw "❌ Launch4j 执行失败，退出码：$LASTEXITCODE"
+          throw "ERROR: Launch4j failed with exit code $LASTEXITCODE"
         }
         if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
-          throw "❌ Launch4j 没生成 EXE"
+          throw "ERROR: Launch4j did not generate EXE file"
         }
-        Write-Host "✅ EXE 生成成功"
+        Write-Host "SUCCESS: EXE generated at target\dist\BatchRenameTool.exe"
       shell: powershell
 
     - name: Create Distribution Package
@@ -157,26 +158,26 @@ jobs:
         $app = "$dist\BatchRenameTool-Windows"
         New-Item -Path $app -ItemType Directory -Force
 
-        # 复制 JRE
+        # Copy JRE
         Copy-Item -Path "$env:JRE_PATH" -Destination "$app\jre" -Recurse -Force
 
-        # 复制 JavaFX
+        # Copy JavaFX
         Copy-Item -Path "C:\javafx-sdk\lib\*" -Destination "$app\lib" -Recurse -Force
 
-        # 复制 JAR + EXE
+        # Copy JAR and EXE
         Copy-Item -Path "target\batchfile_app-0.0.1-SNAPSHOT.jar" -Destination $app
         Copy-Item -Path "$dist\BatchRenameTool.exe" -Destination $app
 
-        # start.bat
+        # Create start.bat
         "@echo off`ncd /d `"%~dp0`nstart jre\bin\javaw.exe -jar batchfile_app-0.0.1-SNAPSHOT.jar" | Out-File "$app\start.bat" -Encoding ASCII
 
-        # README
-        "批量文件夹重命名工具`n自带 JRE+JavaFX，无需安装 Java" | Out-File "$app\README.txt" -Encoding UTF8
+        # Create README
+        "Batch Rename Tool for Windows`nBuilt-in JRE + JavaFX, no Java installation required" | Out-File "$app\README.txt" -Encoding UTF8
 
-        # 压缩
+        # Compress to ZIP
         Compress-Archive -Path "$app\*" -DestinationPath "$dist\BatchRenameTool-Windows.zip" -Force
 
-        Write-Host "✅ 打包完成：$dist\BatchRenameTool-Windows.zip"
+        Write-Host "SUCCESS: Package created at $dist\BatchRenameTool-Windows.zip"
       shell: powershell
 
     - name: Upload Artifact
@@ -194,10 +195,10 @@ jobs:
         tag_name: v${{ github.run_number }}
         name: Release v${{ github.run_number }}
         body: |
-          ### 批量文件夹重命名工具（Windows）
-          - 内置 JRE17 + JavaFX17
-          - 无需安装 Java
-          - 解压即用
+          ### Batch Rename Tool (Windows)
+          - Built-in JRE 17 + JavaFX 17
+          - No Java installation required
+          - Portable, just unzip and run
         draft: false
         prerelease: false
       env:
