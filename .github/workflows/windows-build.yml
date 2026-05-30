@@ -37,10 +37,10 @@ jobs:
           New-Item -Path "C:\launch4j" -ItemType Directory -Force
           $exe = Get-ChildItem "C:\Program Files (x86)\Launch4j" -Recurse -Filter "launch4j.exe" | Select-Object -First 1
 
-          if (-not $exe) { throw " 找不到 launch4j.exe" }
+          if (-not $exe) { throw "Launch4j.exe not found" }
           Copy-Item -Path "$($exe.Directory.FullName)\*" -Destination "C:\launch4j\" -Recurse -Force
 
-          if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw " Launch4j 复制失败" }
+          if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw "Launch4j copy failed" }
         shell: powershell
 
       - name: Download JRE 17 (Temurin)
@@ -51,7 +51,7 @@ jobs:
 
       - name: Package EXE with Launch4j
         run: |
-          # 创建 Launch4j 配置文件
+          # Create Launch4j config file
           @'
           <?xml version="1.0" encoding="UTF-8"?>
           <launch4jConfig>
@@ -100,14 +100,14 @@ jobs:
 
           if ($e -ne 0) {
             Write-Host "Launch4j failed with exit code: $e"
-            throw "Launch4j 打包失败，退出码: $e"
+            throw "Launch4j packaging failed, exit code: $e"
           }
 
           if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
-            throw "EXE 文件未生成，请检查 Launch4j 日志"
+            throw "EXE file not generated, check Launch4j logs"
           }
           
-          Write-Host "EXE 生成成功！"
+          Write-Host "EXE generated successfully!"
           Get-Item "target\dist\BatchRenameTool.exe" | Select-Object Name, Length
         shell: powershell
 
