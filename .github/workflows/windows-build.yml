@@ -80,11 +80,12 @@ jobs:
 
           Write-Host "=== Debug Paths ==="
           Write-Host "Launch4j: C:\launch4j\launch4j.exe"
-          Write-Host "Config:   launch4j-config.xml"
-          Write-Host "JAR:       target\batchfile_app-0.0.1-SNAPSHOT.jar"
-          Write-Host "Out EXE:   target\dist\BatchRenameTool.exe"
+          Write-Host "Config:   $(Get-Location)\launch4j-config.xml"
+          Write-Host "JAR:       $(Get-Location)\target\batchfile_app-0.0.1-SNAPSHOT.jar"
+          Write-Host "Out EXE:   $(Get-Location)\target\dist\BatchRenameTool.exe"
           Write-Host "Config file exists: $(Test-Path launch4j-config.xml)"
           Write-Host "JAR exists: $(Test-Path target\batchfile_app-0.0.1-SNAPSHOT.jar)"
+          Write-Host "Working directory: $(Get-Location)"
 
           if (-not (Test-Path "C:\launch4j\launch4j.exe")) { throw "launch4j.exe missing" }
           if (-not (Test-Path "launch4j-config.xml")) { throw "config.xml missing" }
@@ -93,18 +94,20 @@ jobs:
           New-Item -Path "target\dist" -ItemType Directory -Force | Out-Null
 
           Write-Host "=== Running Launch4j ==="
-          $output = & "C:\launch4j\launch4j.exe" launch4j-config.xml 2>&1
-          $e = $LASTEXITCODE
-          Write-Host "Launch4j output: $output"
-          Write-Host "Launch4j exit code = $e"
-
-          if ($e -ne 0) {
-            Write-Host "Launch4j failed with exit code: $e"
-            throw "Launch4j packaging failed, exit code: $e"
-          }
+          Write-Host "Command: C:\launch4j\launch4j.exe launch4j-config.xml"
+          
+          # 使用 Start-Process 并等待完成
+          $process = Start-Process -FilePath "C:\launch4j\launch4j.exe" -ArgumentList "launch4j-config.xml" -NoNewWindow -PassThru -Wait
+          
+          Write-Host "Process ID: $($process.Id)"
+          Write-Host "Exit code: $($process.ExitCode)"
+          
+          Start-Sleep -Seconds 2
 
           if (-not (Test-Path "target\dist\BatchRenameTool.exe")) {
-            throw "EXE file not generated, check Launch4j logs"
+            Write-Host "=== Listing target\dist directory ==="
+            Get-ChildItem "target\dist" -ErrorAction SilentlyContinue
+            throw "EXE file not generated, exit code: $($process.ExitCode)"
           }
           
           Write-Host "EXE generated successfully!"
