@@ -36,36 +36,72 @@ jobs:
           Expand-Archive -Path "jre17.zip" -DestinationPath "target\jre" -Force
         shell: powershell
 
+      - name: Create Custom JRE with jlink
+        run: |
+          Write-Host "Creating custom JRE with jlink..."
+          $jdkHome = $env:JAVA_HOME
+          $jlinkPath = Join-Path $jdkHome "bin\jlink.exe"
+          
+          # 创建精简 JRE（只包含必要的模块）
+          & $jlinkPath `
+            --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging `
+            --output "target\custom-jre" `
+            --compress=2 `
+            --no-header-files `
+            --no-man-pages
+          
+          Write-Host "Custom JRE created!"
+          Get-ChildItem "target\custom-jre" -Recurse | Measure-Object -Property Length -Sum | Select-Object Count, @{Name="Size(MB)";Expression={[math]::Round($_.Sum/1MB,2)}}
+        shell: powershell
+
       - name: Create Distribution Package
         run: |
           New-Item -Path "target\dist\BatchRenameTool-Windows" -ItemType Directory -Force
           
-          # 复制 JRE
-          $jreDir = Get-ChildItem "target\jre" -Directory | Select-Object -First 1
-          if (-not $jreDir) { throw "JRE directory not found" }
-          Copy-Item -Recurse "$($jreDir.FullName)" "target\dist\BatchRenameTool-Windows\jre" -Force
-          
-          # 复制 JavaFX SDK
-          Copy-Item -Recurse "C:\javafx-sdk\lib" "target\dist\BatchRenameTool-Windows\lib" -Force
+          # 复制精简 JRE
+          Copy-Item -Recurse "target\custom-jre\*" "target\dist\BatchRenameTool-Windows\jre" -Force
           
           # 复制 JAR
           Copy-Item "target\batchfile_app-0.0.1-SNAPSHOT.jar" "target\dist\BatchRenameTool-Windows\"
           
-          # 创建启动脚本
+          # 复制 JavaFX SDK（JAR + native DLL）
+          Copy-Item -Recurse "C:\javafx-sdk\lib\*.jar" "target\dist\BatchRenameTool-Windows\lib\" -Force
+          Copy-Item -Recurse "C:\javafx-sdk\bin\*.dll" "target\dist\BatchRenameTool-Windows\lib\" -Force
+          
+          # 创建 EXE 包装器（使用 PowerShell 生成简单的启动器）
+          $exeScript = @'
+          param()
+          $jarPath = Join-Path $PSScriptRoot "batchfile_app-0.0.1-SNAPSHOT.jar"
+          $javaPath = Join-Path $PSScriptRoot "jre\bin\javaw.exe"
+          Start-Process $javaPath -ArgumentList "-jar", "`"$jarPath`"" -WorkingDirectory $PSScriptRoot -WindowStyle Hidden
+          '@
+          
+          # 使用 PowerShell 的 PS2EXE 或者创建 bat 包装器
+          @'
+          @echo off
+          cd /d "%~dp0"
+          start /min "" cmd /c "jre\bin\javaw.exe -jar batchfile_app-0.0.1-SNAPSHOT.jar"
+          exit
+          '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\BatchRenameTool.bat" -Encoding ASCII
+          
+          # 创建启动脚本（使用 java.exe 以便显示错误）
           @'
           @echo off
           cd /d "%~dp0"
           echo Starting BatchRenameTool...
-          jre\bin\javaw.exe -jar batchfile_app-0.0.1-SNAPSHOT.jar
+          echo.
+          set JAVAFX_PATH=%~dp0lib
+          jre\bin\java.exe ^
+            --module-path "%JAVAFX_PATH%" ^
+            --add-modules javafx.controls,javafx.fxml ^
+            -Djava.library.path="%JAVAFX_PATH%" ^
+            -jar batchfile_app-0.0.1-SNAPSHOT.jar
+          if errorlevel 1 (
+            echo.
+            echo Error occurred! Press any key to exit...
+            pause >nul
+          )
           '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\start.bat" -Encoding ASCII
-          
-          # 创建快捷方式（使用 PowerShell）
-          @'
-          Set-Location "$PSScriptRoot"
-          $javaPath = Join-Path $PSScriptRoot "jre\bin\javaw.exe"
-          $jarPath = Join-Path $PSScriptRoot "batchfile_app-0.0.1-SNAPSHOT.jar"
-          Start-Process $javaPath -ArgumentList "-jar", $jarPath -WindowStyle Hidden
-          '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\start.ps1" -Encoding UTF8
           
           # 创建 README
           @'
@@ -73,7 +109,7 @@ jobs:
           
           Usage:
           1. Extract to any directory
-          2. Double-click start.bat to run
+          2. Double-click BatchRenameTool.bat to run
           
           Note: This version includes JRE and JavaFX, no additional installation required!
           '@ | Out-File -FilePath "target\dist\BatchRenameTool-Windows\README.txt" -Encoding UTF8
