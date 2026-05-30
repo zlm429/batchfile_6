@@ -41,7 +41,6 @@ jobs:
         Move-Item -Path "C:\javafx\javafx-sdk-17.0.2" -Destination "C:\javafx-sdk"
         echo "JAVAFX_PATH=C:\javafx-sdk\lib" >> $env:GITHUB_ENV
     
-    # ====================== 已修复的 Launch4j 步骤 ======================
     - name: Download Launch4j
       run: |
         # 使用 Chocolatey 安装 Launch4j
@@ -204,7 +203,7 @@ jobs:
     
     - name: Create Release
       if: github.event_name == 'push' && success()
-      uses: softprops/gh-release@v2
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           target/dist/*.zip
