@@ -42,9 +42,9 @@
             $jdkHome = $env:JAVA_HOME
             $jlinkPath = Join-Path $jdkHome "bin\jlink.exe"
             
-            # 创建精简 JRE（只包含必要的模块）
+            # 创建精简 JRE（包含所有必要模块）
             & $jlinkPath `
-              --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging `
+              --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging,java.scripting `
               --output "target\custom-jre" `
               --compress=2 `
               --no-header-files `
