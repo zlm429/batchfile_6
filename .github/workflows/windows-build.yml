@@ -44,7 +44,7 @@
             
             # 创建精简 JRE（包含所有必要模块）
             & $jlinkPath `
-              --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging,java.scripting `
+              --add-modules java.base,java.desktop,java.xml,java.sql,java.naming,java.management,java.logging,java.scripting,jdk.unsupported `
               --output "target\custom-jre" `
               --compress=2 `
               --no-header-files `
